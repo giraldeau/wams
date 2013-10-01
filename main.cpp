@@ -17,6 +17,13 @@
 #include <sys/types.h>
 #include <sys/wait.h>
 
+#include "unwindmonitor.h"
+
+#include <QCoreApplication>
+#include <QTextStream>
+#include <QDataStream>
+#include <QStringList>
+
 using namespace std;
 
 static struct UPT_info *ui;
@@ -95,6 +102,15 @@ void trace_process(int pid)
 
 int main(int argc, char *argv[])
 {
+    QCoreApplication app(argc, argv);
+    QStringList args = QCoreApplication::arguments();
+
+    UnwindMonitor um;
+    QObject::connect(&um, SIGNAL(done()), &app, SLOT(quit()));
+    um.execute(args);
+    return app.exec();
+
+    /*
     int pid;
 
     as = unw_create_addr_space(&_UPT_accessors, 0);
@@ -113,4 +129,5 @@ int main(int argc, char *argv[])
     }
 
     return 0;
+    */
 }
