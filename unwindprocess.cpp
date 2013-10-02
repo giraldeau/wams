@@ -14,7 +14,8 @@ UnwindProcess::UnwindProcess(QObject *parent) :
 
 void UnwindProcess::setupChildProcess()
 {
-    cout << "setupChildProcess" << endl;
+    cout << "setupChildProcess " << getpid() << endl;
     ::ptrace(PTRACE_TRACEME, 0, 0, 0);
     ::kill(getpid(), SIGINT);
+    cout << "ptrace started " << getpid() << endl;
 }

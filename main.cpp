@@ -23,6 +23,7 @@
 #include <QTextStream>
 #include <QDataStream>
 #include <QStringList>
+#include <QTimer>
 
 using namespace std;
 
@@ -102,12 +103,15 @@ void trace_process(int pid)
 
 int main(int argc, char *argv[])
 {
+    cout << "master " << getpid() << endl;
     QCoreApplication app(argc, argv);
     QStringList args = QCoreApplication::arguments();
+    args.removeFirst();
 
     UnwindMonitor um;
-    QObject::connect(&um, SIGNAL(done()), &app, SLOT(quit()));
+    QObject::connect(&um, SIGNAL(done()), &app, SLOT(quit()), Qt::QueuedConnection);
     um.execute(args);
+
     return app.exec();
 
     /*
