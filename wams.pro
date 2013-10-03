@@ -17,10 +17,10 @@ TEMPLATE = app
 
 SOURCES += main.cpp \
     unwindmonitor.cpp \
-    unwindprocess.cpp
+    frame.cpp
 
 unix|win32: LIBS += -lunwind -lunwind-x86_64 -lunwind-ptrace -ldl -lrt -rdynamic
 
 HEADERS += \
     unwindmonitor.h \
-    unwindprocess.h
+    frame.h

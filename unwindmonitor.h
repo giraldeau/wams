@@ -1,6 +1,13 @@
 #ifndef UNWINDMONITOR_H
 #define UNWINDMONITOR_H
 
+#ifndef _GNU_SOURCE
+#define _GNU_SOURCE
+#endif
+#ifndef __USE_GNU
+#define __USE_GNU
+#endif
+
 #include <unistd.h>
 #include <inttypes.h>
 #include <libunwind.h>
@@ -15,26 +22,25 @@
 #include <QTextStream>
 #include <QStringList>
 #include <QProcess>
-#include <unwindprocess.h>
 
 class UnwindMonitor : public QObject
 {
     Q_OBJECT
 public:
     explicit UnwindMonitor(QObject *parent = 0);
+    ~UnwindMonitor();
     void execute(const QStringList args);
+    void execChild(const QStringList args);
+    void traceProcess(pid_t pid);
+    void doBacktrace(struct UPT_info *ui);
 
 signals:
     void done();
+    void backtraceReady();
 public slots:
-    void childFinished(int exitCode, QProcess::ExitStatus status);
-    void childError(QProcess::ProcessError error);
-    void childRead();
-    void doBacktrace(QProcess::ProcessState state);
 
 private:
     QTextStream out;
-    UnwindProcess child;
     unw_addr_space_t as;
 };
 

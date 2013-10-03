@@ -1,8 +1,26 @@
-#include "unwindmonitor.h"
-#include <unistd.h>
+#ifndef _GNU_SOURCE
+#define _GNU_SOURCE
+#endif
+#ifndef __USE_GNU
+#define __USE_GNU
+#endif
 
+#include <unistd.h>
 #include <QDebug>
 #include <iostream>
+
+#include <unistd.h>
+#include <inttypes.h>
+#include <libunwind.h>
+#include <libunwind-ptrace.h>
+#include <sys/ptrace.h>
+#include <sys/user.h>
+#include <sys/reg.h>
+#include <sys/types.h>
+#include <sys/wait.h>
+
+#include "unwindmonitor.h"
+
 using namespace std;
 
 UnwindMonitor::UnwindMonitor(QObject *parent) :
@@ -10,60 +28,65 @@ UnwindMonitor::UnwindMonitor(QObject *parent) :
     out(stdout)
 {
     as = unw_create_addr_space(&_UPT_accessors, 0);
-    connect(&child, SIGNAL(finished(int, QProcess::ExitStatus)), this, SLOT(childFinished(int, QProcess::ExitStatus)));
-    connect(&child, SIGNAL(error(QProcess::ProcessError)), this, SLOT(childError(QProcess::ProcessError)));
-    connect(&child, SIGNAL(stateChanged(QProcess::ProcessState)), this, SLOT(doBacktrace(QProcess::ProcessState)));
-    //connect(&child, SIGNAL(started()), this, SLOT(doBacktrace()));
-    connect(&child, SIGNAL(readyRead()), this, SLOT(childRead()));
 }
 
-void UnwindMonitor::execute(const QStringList argsList)
+UnwindMonitor::~UnwindMonitor()
 {
-    if (argsList.length() == 0) {
+    unw_destroy_addr_space(as);
+}
+
+void UnwindMonitor::execChild(const QStringList args)
+{
+    // setup arguments, impedence between C and C++ is obvious
+    char *prog = ::strdup(args.first().toLocal8Bit().constData());
+    char **argv = new char*[args.size() + 1];
+    argv[args.size()] = 0;
+    for(int i = 0; i < args.size(); i++) {
+        argv[i] = ::strdup(args.at(i).toLocal8Bit().constData());
+    }
+
+    // setup ptrace
+    ptrace(PTRACE_TRACEME, 0, 0, 0);
+    kill(getpid(), SIGINT);
+    int ret = execvp(prog, argv);
+
+    // handle error
+    if (ret < 0) {
+        free(prog);
+        for (int i = 0; i < args.size(); i++) {
+            free(argv[i]);
+        }
+        delete argv;
+        out << "execvp error" << endl;
+    }
+}
+
+void UnwindMonitor::execute(const QStringList args)
+{
+    if (args.isEmpty()) {
         emit done();
         return;
     }
-    QString prog = argsList.first();
-    QStringList args(argsList);
-    args.removeFirst();
-    child.start(prog, args);
-    cout << "after start " << getpid() << endl;
-}
 
-void UnwindMonitor::childFinished(int exitCode, QProcess::ExitStatus status)
-{
-    out << "childFinished " << exitCode << " " << status << endl;
+    pid_t pid = fork();
+    if (pid == 0) {
+        execChild(args);
+    } else if (pid > 0) {
+        traceProcess(pid);
+    }
     emit done();
+    return;
 }
 
-void UnwindMonitor::childError(QProcess::ProcessError error)
-{
-    out << "childError " << error << endl;
-    emit done();
-}
 
-void UnwindMonitor::childRead()
+void UnwindMonitor::traceProcess(pid_t pid)
 {
-    /*
-     * Redirect stdout
-     */
-    out << child.readAll();
-}
-
-void UnwindMonitor::doBacktrace(QProcess::ProcessState state)
-{
-    out << "doBacktrace state=" << state << " " << getpid() << " " << child.pid() << endl;
-    if (state == QProcess::NotRunning)
-        return;
-
     int status;
     struct UPT_info *ui;
 
-    Q_PID pid = child.pid();
     ui = (UPT_info*) _UPT_create(pid);
     waitpid(pid, &status, 0);
 
-    /*
     ptrace(PTRACE_SYSCALL, pid, 0, 0);
     while(1) {
         waitpid(pid, &status, 0);
@@ -71,10 +94,37 @@ void UnwindMonitor::doBacktrace(QProcess::ProcessState state)
             break;
         int rax = ptrace(PTRACE_PEEKUSER, pid, 8 * ORIG_RAX, 0);
         cout << rax << endl;
-        //do_backtrace(pid);
+        doBacktrace(ui);
         ptrace(PTRACE_SYSCALL, pid, 0, 0);
     }
     _UPT_destroy(ui);
-    */
+}
+
+void UnwindMonitor::doBacktrace(struct UPT_info *ui)
+{
+    unw_cursor_t cursor;
+    unw_word_t ip;
+    unw_word_t offp;
+    int ret;
+    char buf[512];
+
+    ret = unw_init_remote(&cursor, as, ui);
+    if (ret < 0) {
+        cerr << "unw_init_remote() failed" << endl;
+        return;
+    }
+
+    do {
+        ret = unw_get_reg(&cursor, UNW_REG_IP, &ip);
+        if (ret < 0) {
+            cerr << "unw_init_remote() failed" << endl;
+            return;
+        }
+
+        buf[0] = '\0';
+        unw_get_proc_name(&cursor, buf, sizeof(buf), &offp);
+        printf("ip = %lx %s\n", (long) ip, buf);
+        ret = unw_step(&cursor);
+    } while (ret > 0);
 }
 
