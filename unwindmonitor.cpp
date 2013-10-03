@@ -8,6 +8,7 @@
 #include <unistd.h>
 #include <QDebug>
 #include <iostream>
+#include <cxxabi.h>
 
 #include <unistd.h>
 #include <inttypes.h>
@@ -114,6 +115,30 @@ out:
     _UPT_destroy(ui);
 }
 
+QString demangle(char *orig)
+{
+    QString name;
+    int status;
+
+    char *demang = abi::__cxa_demangle(orig, 0, 0, &status);
+    switch(status) {
+    case 0:
+        name.append(demang);
+        free(demang);
+        break;
+    case -1:
+        break;
+    case -2:
+    case -3:
+        name.append(orig);
+        break;
+    default:
+        name.append("demangle error");
+        break;
+    }
+    return name;
+}
+
 void UnwindMonitor::doBacktrace(struct UPT_info *ui)
 {
     unw_cursor_t cursor;
@@ -139,7 +164,8 @@ void UnwindMonitor::doBacktrace(struct UPT_info *ui)
             break;
         prev_ip = ip;
         unw_get_proc_name(&cursor, buf, sizeof(buf), &offp);
-        out << QString("ip = %1 %2").arg((long) ip, 0, 16).arg(buf) << endl;
+        QString funcName = demangle(buf);
+        out << QString("ip = %1 %2").arg((long) ip, 0, 16).arg(funcName) << endl;
         ret = unw_step(&cursor);
     } while (ret > 0);
 }
