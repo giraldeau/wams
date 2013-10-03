@@ -30,9 +30,6 @@ public:
     explicit UnwindMonitor(QObject *parent = 0);
     ~UnwindMonitor();
     void execute(const QStringList args);
-    void execChild(const QStringList args);
-    void traceProcess(pid_t pid);
-    void doBacktrace(struct UPT_info *ui);
 
 signals:
     void done();
@@ -40,6 +37,10 @@ signals:
 public slots:
 
 private:
+    void execChild(const QStringList args);
+    void traceProcess(pid_t pid);
+    bool waitSyscall(pid_t pid);
+    void doBacktrace(struct UPT_info *ui);
     QTextStream out;
     unw_addr_space_t as;
 };

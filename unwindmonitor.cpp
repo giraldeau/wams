@@ -78,6 +78,16 @@ void UnwindMonitor::execute(const QStringList args)
     return;
 }
 
+bool UnwindMonitor::waitSyscall(pid_t pid)
+{
+    int status;
+
+    ptrace(PTRACE_SYSCALL, pid, 0, 0);
+    waitpid(pid, &status, 0);
+    if (WIFEXITED(status))
+        return false;
+    return true;
+}
 
 void UnwindMonitor::traceProcess(pid_t pid)
 {
@@ -85,25 +95,29 @@ void UnwindMonitor::traceProcess(pid_t pid)
     struct UPT_info *ui;
 
     ui = (UPT_info*) _UPT_create(pid);
-    waitpid(pid, &status, 0);
 
-    ptrace(PTRACE_SYSCALL, pid, 0, 0);
+    // Initialisation
+    waitpid(pid, &status, 0);
+    if (WIFEXITED(status))
+        goto out;
+
     while(1) {
-        waitpid(pid, &status, 0);
-        if (WIFEXITED(status))
+        if (!waitSyscall(pid)) // sys_exit
+            goto out;
+        if (!waitSyscall(pid)) // sys_entry
             break;
         int rax = ptrace(PTRACE_PEEKUSER, pid, 8 * ORIG_RAX, 0);
         cout << rax << endl;
         doBacktrace(ui);
-        ptrace(PTRACE_SYSCALL, pid, 0, 0);
     }
+out:
     _UPT_destroy(ui);
 }
 
 void UnwindMonitor::doBacktrace(struct UPT_info *ui)
 {
     unw_cursor_t cursor;
-    unw_word_t ip;
+    unw_word_t ip, prev_ip = 0;
     unw_word_t offp;
     int ret;
     char buf[512];
@@ -120,10 +134,12 @@ void UnwindMonitor::doBacktrace(struct UPT_info *ui)
             cerr << "unw_init_remote() failed" << endl;
             return;
         }
-
         buf[0] = '\0';
+        if (ip == prev_ip)
+            break;
+        prev_ip = ip;
         unw_get_proc_name(&cursor, buf, sizeof(buf), &offp);
-        printf("ip = %lx %s\n", (long) ip, buf);
+        out << QString("ip = %1 %2").arg((long) ip, 0, 16).arg(buf) << endl;
         ret = unw_step(&cursor);
     } while (ret > 0);
 }
